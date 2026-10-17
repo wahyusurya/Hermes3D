@@ -58,6 +58,7 @@ import {
 } from "@/lib/tasks/shared-store-client";
 import type { SharedTaskRecord } from "@/lib/tasks/shared-store";
 import { randomUUID } from "@/lib/uuid";
+import { useActiveProject } from "@/features/office/tasks/useActiveProject";
 
 const TASK_EVENT_NAMES = new Set([
   "task_created",
@@ -173,6 +174,7 @@ const makeCard = (
     subagentCount: input.subagentCount ?? 0,
     scheduledFor: input.scheduledFor ?? null,
     learnedSkill: input.learnedSkill ?? false,
+    project: input.project ?? null,
   };
 };
 
@@ -318,6 +320,7 @@ const buildCardFromSharedTaskRecord = (
     notes: task.notes ?? existing?.notes ?? [],
     isArchived: task.isArchived ?? existing?.isArchived ?? false,
     isInferred: false,
+    project: task.project ?? existing?.project ?? null,
   });
 
 const cardTextKey = (card: Pick<TaskBoardCard, "title" | "assignedAgentId">) =>
@@ -675,6 +678,11 @@ export const useTaskBoardController = ({
     defaultTaskBoardPreference(),
   );
   const stateRef = useRef(state);
+  const { project: activeProject } = useActiveProject();
+  const activeProjectRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeProjectRef.current = activeProject;
+  }, [activeProject]);
   const hydratedRef = useRef(false);
   const recoveredAgentRequestKeyRef = useRef<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -1053,6 +1061,7 @@ export const useTaskBoardController = ({
         description: input?.description ?? "",
         status: input?.status ?? "inbox",
         source: "hermes3d_manual",
+        project: input?.project ?? activeProjectRef.current,
         assignedAgentId: input?.assignedAgentId ?? null,
         playbookJobId: input?.playbookJobId ?? null,
         runId: input?.runId ?? null,
@@ -1410,10 +1419,13 @@ export const useTaskBoardController = ({
     };
     for (const card of state.cards) {
       if (card.isArchived) continue;
+      // Studio's own cards: only the project the team is working on (nothing without one).
+      // Hermes Kanban cards are already scoped by their backend board, so they always show.
+      if (!isKanbanManagedTaskId(card.id) && (!activeProject || card.project !== activeProject)) continue;
       grouped[card.status].push(card);
     }
     return grouped;
-  }, [state.cards]);
+  }, [activeProject, state.cards]);
 
   const activeRuns = useMemo(() => buildActiveRunOptions(runLog), [runLog]);
 
@@ -1460,6 +1472,7 @@ export const useTaskBoardController = ({
     selectedCard,
     activeRuns,
     taskCaptureDebug: taskCaptureDebugInfo,
+    activeProject,
     createManualCard,
     updateCard,
     moveCard,

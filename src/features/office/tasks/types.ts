@@ -62,6 +62,8 @@ export type TaskBoardCard = {
   scheduledFor: string | null;
   /** True when the learning loop distilled this task into a new skill. */
   learnedSkill: boolean;
+  /** GitHub "owner/repo" this task belongs to; the board only shows the active project's tasks. */
+  project?: string | null;
 };
 
 export type TaskBoardPreference = {

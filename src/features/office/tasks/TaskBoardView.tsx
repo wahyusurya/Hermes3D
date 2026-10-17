@@ -22,6 +22,7 @@ import {
 import type { AgentState } from "@/features/agents/state/store";
 import type { CronJobSummary } from "@/lib/cron/types";
 import type { TaskBoardCard, TaskBoardStatus } from "@/features/office/tasks/types";
+import { useActiveProject } from "@/features/office/tasks/useActiveProject";
 
 const STATUS_ORDER: TaskBoardStatus[] = [
   "inbox",
@@ -215,6 +216,7 @@ export function TaskBoardView({
     0,
   );
 
+  const activeProject = useActiveProject();
   return (
     <section className="flex h-full min-h-0 flex-col bg-transparent text-white">
       <div className="border-b border-emerald-500/10 bg-[#070b09]/25 px-4 py-3 backdrop-blur-[1px]">
@@ -234,6 +236,13 @@ export function TaskBoardView({
                 <span className="text-emerald-300/70">{learnedCount} skills learned</span>
               ) : null}
             </div>
+            {activeProject.loaded ? (
+              <div className="mt-1 font-mono text-[11px] text-amber-200/80">
+                {activeProject.project
+                  ? `Project: ${activeProject.project}`
+                  : "No active project. Showing Hermes Kanban tasks; GitHub review is hidden until a project is set."}
+              </div>
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
             <button

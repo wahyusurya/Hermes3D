@@ -109,6 +109,7 @@ const normalizeTaskRecord = (value: unknown): SharedTaskRecord | null => {
     subagentCount: normalizeSubagentCount(record.subagentCount),
     scheduledFor: trimString(record.scheduledFor) || null,
     learnedSkill: Boolean(record.learnedSkill),
+    project: trimString(record.project) || null,
     history: Array.isArray(record.history)
       ? record.history
           .map((entry) => normalizeHistoryEntry(entry))
