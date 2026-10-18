@@ -217,6 +217,7 @@ function createHermesAgentUpstream(options) {
     url,
     token,
     handshakeTimeoutMs,
+    kanbanPresenceMs = 10_000,
     log = () => {},
     logError = () => {},
   } = options || {};
@@ -519,10 +520,78 @@ function createHermesAgentUpstream(options) {
     });
   };
 
+  // Kanban workers run outside this connection (the dispatcher spawns them), so their work never
+  // streams here. Mirror each running task onto its assignee's main session so the office shows
+  // that agent working, and end the run when the task leaves "running".
+  /** kanban task id -> { runId, sessionKey, title } */
+  const kanbanRuns = new Map();
+  let kanbanTimer = null;
+
+  const pollKanbanPresence = async () => {
+    let board;
+    try {
+      board = await kanbanRequest({
+        wsUrl: url,
+        token,
+        useLoopbackHost: client.usedLoopbackHost,
+        method: "GET",
+        path: "/board?include_archived=false",
+      });
+    } catch {
+      return; // no kanban on this backend: nothing to mirror
+    }
+    const statusById = new Map();
+    const running = new Map();
+    for (const column of Array.isArray(board?.columns) ? board.columns : []) {
+      for (const task of Array.isArray(column?.tasks) ? column.tasks : []) {
+        const taskId = asString(task?.id);
+        const assignee = asString(task?.assignee);
+        statusById.set(taskId, asString(task?.status));
+        if (asString(task?.status) === "running" && agentRoster.some((a) => a.id === assignee)) {
+          running.set(taskId, { assignee, title: asString(task?.title, taskId) });
+        }
+      }
+    }
+    for (const [taskId, task] of running) {
+      let run = kanbanRuns.get(taskId);
+      if (!run) {
+        run = { runId: `kanban-${taskId}`, sessionKey: `agent:${task.assignee}:${MAIN_KEY}`, title: task.title };
+        kanbanRuns.set(taskId, run);
+      }
+      emitEvent("agent", {
+        runId: run.runId,
+        sessionKey: run.sessionKey,
+        stream: "assistant",
+        data: { text: `Working on Kanban task: ${task.title}` },
+      });
+    }
+    for (const [taskId, run] of kanbanRuns) {
+      if (running.has(taskId)) continue;
+      kanbanRuns.delete(taskId);
+      const outcome = statusById.get(taskId) || "finished";
+      emitChat(run.runId, run.sessionKey, "final", {
+        stopReason: "end_turn",
+        message: { role: "assistant", content: `Kanban task ${outcome}: ${run.title}` },
+      });
+    }
+  };
+
+  const startKanbanPresence = () => {
+    if (kanbanTimer) return;
+    void pollKanbanPresence();
+    kanbanTimer = setInterval(() => void pollKanbanPresence(), kanbanPresenceMs);
+  };
+
+  const stopKanbanPresence = () => {
+    if (kanbanTimer) clearInterval(kanbanTimer);
+    kanbanTimer = null;
+  };
+
   const handleConnect = async (id) => {
     await loadAgentRoster();
     // Only worth subscribing once the roster exists to map turns onto.
     startOfficeSpeech();
+    startKanbanPresence();
     const agents = agentRoster.map((a) => ({
       agentId: a.id,
       name: a.name,
@@ -975,6 +1044,7 @@ function createHermesAgentUpstream(options) {
     closed = true;
     upstream.readyState = CLOSED;
     stopOfficeSpeech();
+    stopKanbanPresence();
     client.close(code, reason);
   };
 
@@ -982,6 +1052,7 @@ function createHermesAgentUpstream(options) {
     closed = true;
     upstream.readyState = CLOSED;
     stopOfficeSpeech();
+    stopKanbanPresence();
     client.terminate();
   };
 
@@ -995,6 +1066,7 @@ function createHermesAgentUpstream(options) {
     closed = true;
     upstream.readyState = CLOSED;
     stopOfficeSpeech();
+    stopKanbanPresence();
     upstream.emit("close", code, Buffer.from(String(reason ?? "")));
   });
 

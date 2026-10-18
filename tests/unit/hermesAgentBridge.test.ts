@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer, type WebSocket as WsSocket } from "ws";
 import type { AddressInfo } from "node:net";
+import http from "node:http";
 
 const { buildJsonRpcUrl, redactUrl } = await import("../../server/hermes-agent/jsonrpc-client");
 const { createHermesAgentUpstream, toHermes3dMessages } = await import(
@@ -19,6 +20,7 @@ const at = (source: unknown, path: string): unknown =>
 
 const servers: WebSocketServer[] = [];
 const upstreams: { terminate: () => void }[] = [];
+const httpServers: http.Server[] = [];
 
 afterEach(async () => {
   for (const upstream of upstreams.splice(0)) {
@@ -29,16 +31,28 @@ afterEach(async () => {
   for (const server of servers.splice(0)) {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+  for (const server of httpServers.splice(0)) {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });
 
 /**
  * Minimal stand-in for hermes-agent's /api/ws: emits gateway.ready on connect,
  * answers JSON-RPC requests from `handlers`, and lets a handler push events.
  */
-const startFakeHermesAgent = async (handlers: Record<string, RpcHandler>) => {
-  const wss = new WebSocketServer({ port: 0 });
+const startFakeHermesAgent = async (
+  handlers: Record<string, RpcHandler>,
+  httpHandler?: http.RequestListener,
+) => {
+  // With an httpHandler the fake also answers plain HTTP (e.g. /api/plugins/kanban) on the same port.
+  const httpServer = httpHandler ? http.createServer(httpHandler) : null;
+  if (httpServer) {
+    httpServers.push(httpServer);
+    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", () => resolve()));
+  }
+  const wss = httpServer ? new WebSocketServer({ server: httpServer }) : new WebSocketServer({ port: 0 });
   servers.push(wss);
-  await new Promise<void>((resolve) => wss.on("listening", () => resolve()));
+  if (!httpServer) await new Promise<void>((resolve) => wss.on("listening", () => resolve()));
 
   const received: Frame[] = [];
 
@@ -69,14 +83,14 @@ const startFakeHermesAgent = async (handlers: Record<string, RpcHandler>) => {
     });
   });
 
-  const { port } = wss.address() as AddressInfo;
+  const { port } = (httpServer ?? wss).address() as AddressInfo;
   return { url: `ws://127.0.0.1:${port}`, received };
 };
 
 /** Drive the bridge and collect the frames it sends back toward the browser. */
-const openBridge = async (url: string, token = "") => {
+const openBridge = async (url: string, token = "", options: Frame = {}) => {
   const frames: Frame[] = [];
-  const upstream = createHermesAgentUpstream({ url, token });
+  const upstream = createHermesAgentUpstream({ url, token, ...options });
   upstreams.push(upstream);
   upstream.on("message", (raw: string) => frames.push(JSON.parse(raw) as Frame));
 
@@ -567,5 +581,38 @@ describe("hermes-agent bridge", () => {
 
     expect(res.ok).toBe(true);
     expect(at(res, "payload.models")).not.toHaveLength(0);
+  });
+});
+
+describe("kanban presence", () => {
+  it("shows a running kanban task as its assignee working, then ends the run", async () => {
+    let status = "running";
+    const agent = await startFakeHermesAgent(
+      { "profiles.list": () => ({ profiles: [{ name: "chamber" }] }) },
+      (_req, res) => {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({
+          columns: [{ name: status, tasks: [{ id: "t1", title: "PLAN: x", status, assignee: "chamber" }] }],
+        }));
+      },
+    );
+    const bridge = await openBridge(agent.url, "", { kanbanPresenceMs: 50 });
+    bridge.send({ type: "req", id: "c1", method: "connect", params: {} });
+    await bridge.waitFor((f) => f.type === "res" && f.id === "c1", "hello-ok");
+
+    const working = await bridge.waitFor(
+      (f) => f.event === "agent" && at(f, "payload.runId") === "kanban-t1",
+      "kanban working event",
+    );
+    expect(at(working, "payload.sessionKey")).toBe("agent:chamber:main");
+    expect(at(working, "payload.stream")).toBe("assistant");
+    expect(String(at(working, "payload.data.text"))).toContain("PLAN: x");
+
+    status = "done";
+    const finished = await bridge.waitFor(
+      (f) => f.event === "chat" && at(f, "payload.runId") === "kanban-t1" && at(f, "payload.state") === "final",
+      "kanban final event",
+    );
+    expect(String(at(finished, "payload.message.content"))).toContain("done");
   });
 });
