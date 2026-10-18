@@ -85,6 +85,8 @@ async function main() {
   const handle = app.getRequestHandler();
 
   const accessGate = createAccessGate({
+    loginUser: process.env.STUDIO_LOGIN_USER,
+    loginPasswordHash: process.env.STUDIO_LOGIN_PASSWORD_HASH,
     token: process.env.STUDIO_ACCESS_TOKEN,
   });
 
