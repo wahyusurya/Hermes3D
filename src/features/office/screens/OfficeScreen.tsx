@@ -68,6 +68,7 @@ import {
   type RemoteAgentChatMessage,
 } from "@/features/office/components/RemoteAgentChatPanel";
 import { useOfficeFloorRuntimePersistence } from "@/features/office/hooks/useOfficeFloorRuntimePersistence";
+import { usePersistedToggle } from "@/features/office/hooks/usePersistedToggle";
 import {
   type RuntimeAgentMessageMode,
 } from "@/lib/runtime/agentMessaging";
@@ -1110,6 +1111,9 @@ export function OfficeScreen({
   const { showOnboarding, completeOnboarding, resetOnboarding } =
     useOnboardingState();
   const [forceShowOnboarding, setForceShowOnboarding] = useState(false);
+  // The event console can be hidden by the viewer (remembered per browser).
+  const [eventConsoleHidden, toggleEventConsoleHidden] = usePersistedToggle("hermes3d:ui:event-console-hidden");
+  const eventConsoleVisible = showHermesConsole && !eventConsoleHidden;
   // Server-side onboarding flag (null until settings load) so completion survives
   // cleared browser storage, private windows and other devices.
   const [serverOnboardingCompleted, setServerOnboardingCompleted] = useState<boolean | null>(null);
@@ -4736,7 +4740,7 @@ export function OfficeScreen({
           taskBoardCronError={
             taskBoard.sharedTasksError ?? taskBoard.gatewayTasksError ?? taskBoard.cronError
           }
-          taskBoardCaptureDebug={showHermesConsole ? taskBoard.taskCaptureDebug : undefined}
+          taskBoardCaptureDebug={eventConsoleVisible ? taskBoard.taskCaptureDebug : undefined}
           onTaskBoardCreateCard={() => {
             taskBoard.createManualCard();
           }}
@@ -4936,7 +4940,7 @@ export function OfficeScreen({
               cronError={
                 taskBoard.sharedTasksError ?? taskBoard.gatewayTasksError ?? taskBoard.cronError
               }
-              taskCaptureDebug={showHermesConsole ? taskBoard.taskCaptureDebug : undefined}
+              taskCaptureDebug={eventConsoleVisible ? taskBoard.taskCaptureDebug : undefined}
               onCreateCard={() => {
                 taskBoard.createManualCard();
                 setActiveSidebarTab("kanban");
@@ -5022,7 +5026,18 @@ export function OfficeScreen({
       ) : null}
 
       {showHermesConsole ? (
-        <section className="pointer-events-auto fixed bottom-3 left-3 z-30 flex w-[520px] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded border border-cyan-500/25 bg-black/78 shadow-2xl backdrop-blur">
+        <button
+          type="button"
+          onClick={toggleEventConsoleHidden}
+          aria-pressed={!eventConsoleHidden}
+          className="pointer-events-auto fixed bottom-3 left-3 z-40 rounded border border-amber-500/25 bg-black/70 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-amber-100/80 backdrop-blur transition-colors hover:border-amber-400/50 hover:text-amber-50"
+        >
+          {eventConsoleHidden ? "Show console" : "Hide console"}
+        </button>
+      ) : null}
+
+      {eventConsoleVisible ? (
+        <section className="pointer-events-auto fixed bottom-10 left-3 z-30 flex w-[520px] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded border border-cyan-500/25 bg-black/78 shadow-2xl backdrop-blur">
           <div className="flex items-center justify-between border-b border-cyan-500/15 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.18em] text-cyan-200/80">
             <span>Agent Event Console</span>
             <div className="flex items-center gap-2">
