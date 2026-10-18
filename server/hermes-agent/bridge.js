@@ -218,6 +218,8 @@ function createHermesAgentUpstream(options) {
     token,
     handshakeTimeoutMs,
     kanbanPresenceMs = 10_000,
+    // Profiles that get no desk, e.g. the root "default" profile that only hosts the gateway.
+    hiddenProfiles = String(process.env.HERMES3D_HIDE_PROFILES ?? "").split(","),
     log = () => {},
     logError = () => {},
   } = options || {};
@@ -475,7 +477,8 @@ function createHermesAgentUpstream(options) {
   const loadAgentRoster = async () => {
     try {
       const result = await client.request("profiles.list", {}, SESSION_RPC_TIMEOUT_MS);
-      const mapped = toHermes3dAgents(result?.profiles);
+      const hidden = new Set([...hiddenProfiles].map((name) => String(name).trim()).filter(Boolean));
+      const mapped = toHermes3dAgents(result?.profiles).filter((agent) => !hidden.has(agent.id));
       if (mapped.length > 0) {
         agentRoster = mapped;
         defaultAgentId = resolveDefaultAgentId(mapped);

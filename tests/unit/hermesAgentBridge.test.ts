@@ -616,3 +616,25 @@ describe("kanban presence", () => {
     expect(String(at(finished, "payload.message.content"))).toContain("done");
   });
 });
+
+describe("hidden profiles", () => {
+  it("gives no desk to profiles listed in hiddenProfiles", async () => {
+    const agent = await startFakeHermesAgent({
+      "profiles.list": () => ({
+        profiles: [
+          { name: "default", is_default: true },
+          { name: "chamber" },
+          { name: "jett" },
+        ],
+      }),
+    });
+    const bridge = await openBridge(agent.url, "", { hiddenProfiles: ["default", " "] });
+    bridge.send({ type: "req", id: "c1", method: "connect", params: {} });
+    await bridge.waitFor((f) => f.type === "res" && f.id === "c1", "hello-ok");
+
+    bridge.send({ type: "req", id: "a1", method: "agents.list", params: {} });
+    const listed = await bridge.waitFor((f) => f.type === "res" && f.id === "a1", "agents.list");
+    const ids = (at(listed, "payload.agents") as { id: string }[]).map((a) => a.id);
+    expect(ids).toEqual(["chamber", "jett"]);
+  });
+});
