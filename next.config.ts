@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 import path from "node:path";
 
+// Opt-in for plain-HTTP hosting (e.g. a Tailscale IP): drops upgrade-insecure-requests and HSTS,
+// which otherwise break every asset load over http://. Set at build time (baked into routes-manifest).
+const allowPlainHttp = process.env.STUDIO_ALLOW_HTTP === "1";
+
 const securityHeaders = [
   {
     key: "Content-Security-Policy",
@@ -28,7 +32,7 @@ const securityHeaders = [
       "media-src 'self' blob: data: http: https:",
       "worker-src 'self' blob:",
       "object-src 'none'",
-      "upgrade-insecure-requests",
+      ...(allowPlainHttp ? [] : ["upgrade-insecure-requests"]),
     ].join("; "),
   },
   {
@@ -53,7 +57,7 @@ const securityHeaders = [
   },
 ];
 
-if (process.env.NODE_ENV === "production") {
+if (process.env.NODE_ENV === "production" && !allowPlainHttp) {
   securityHeaders.push({
     key: "Strict-Transport-Security",
     value: "max-age=31536000; includeSubDomains",
