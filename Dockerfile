@@ -17,6 +17,9 @@ COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# Set to 1 for plain-HTTP hosting (drops upgrade-insecure-requests + HSTS; baked into routes-manifest).
+ARG STUDIO_ALLOW_HTTP=
+ENV STUDIO_ALLOW_HTTP=$STUDIO_ALLOW_HTTP
 # Build-time gateway URL (overridden at runtime by HERMES3D_GATEWAY_URL).
 ENV NEXT_PUBLIC_GATEWAY_URL=ws://127.0.0.1:18789
 RUN npm run build
@@ -37,6 +40,8 @@ COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/server ./server
 COPY --from=deps /app/node_modules ./node_modules
+# next.config.ts is loaded at startup; without typescript Next tries to install devDependencies (crash-loop).
+COPY --from=builder /app/node_modules/typescript ./node_modules/typescript
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/next.config.ts ./next.config.ts
 
